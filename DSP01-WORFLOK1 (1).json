@@ -1,0 +1,1459 @@
+{
+  "name": "DSP01-WORFLOK1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1792,
+        192
+      ],
+      "id": "95594863-e999-4d43-822b-814b2adacc69",
+      "name": "Webhook",
+      "webhookId": "3eeb6c9c-a1b8-4faf-a839-1b52aa1af1c1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8005/analyze",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "mensaje_id",
+              "value": "={{ $json.mensaje_id }}"
+            },
+            {
+              "name": "cliente_id",
+              "value": "={{ $json.cliente_id }}"
+            },
+            {
+              "name": "mensaje",
+              "value": "={{ $json.texto }}"
+            },
+            {
+              "name": "hash",
+              "value": "={{ $json.hash }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        712
+      ],
+      "id": "dd716cfb-ff66-421a-b08c-7a8bdf10ad5a",
+      "name": "spearphish-detector"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.virustotal.com/api/v3/urls",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "virusTotalApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": ""
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.link }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a0f0a6a6-4361-405e-bae4-03421afbbaf7",
+      "name": "VirusTotal",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.virustotal.com/api/v3/analyses/{{ $node[\"VirusTotal\"].json.data.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "virusTotalApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": ""
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "5ee22c82-c66a-4636-a68e-ee95cd237972",
+      "name": "VirusTotal1",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "1d918fec-e3d5-4232-aec7-311e91e43d33",
+      "name": "Wait1",
+      "webhookId": "49e686a1-eb97-49a6-b662-b97ffc2aade0"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item;\n\n// 1. Obtener datos directamente del body que manda el Interceptor\nconst datos = item.json.body || {}; \n\n// 2. Extraer información usando los campos exactos del payload de Python\nconst mensajeOriginal = datos.contenido_texto || \"\";\nconst linksRescatados = datos.links || [];\nconst tieneLinks = datos.has_links || linksRescatados.length > 0;\n\n// Ajuste de IDs según el nuevo script unificado\nconst nombreUsuario = datos.username || \"Desconocido\";\nconst chatId = datos.chat_id || \"0\"; // Usamos chat_id (grupo o user)\nconst mensajeId = datos.message_id || \"N/A\";\n\n// --- MEJORA: LIMPIEZA DE TEXTO PARA LA IA ---\nlet textoLimpio = mensajeOriginal.toLowerCase();\n\n// Reemplazar URLs por [url] para simplificar el análisis de la IA\ntextoLimpio = textoLimpio.replace(/https?:\\/\\/\\S+/g, '[url]');\n\n// Limpiar caracteres especiales manteniendo tildes y ñ\ntextoLimpio = textoLimpio\n    .replace(/[^a-záéíóúñü0-9\\s\\.,]/g, '')\n    .replace(/\\s+/g, ' ') \n    .trim();\n\n// --- DETECCIÓN DE IDIOMA ---\nconst patronesSpamEn = /\\b(login|account|verify|security|urgent|claimed|winner|bank|access)\\b/i;\nconst esIngles = patronesSpamEn.test(mensajeOriginal);\nconst idiomaFinal = esIngles ? 'en' : 'es';\n\n// 3. Respuesta unificada para el siguiente nodo (IA o HTTP Request de borrado)\nreturn {\n    json: {\n        chat_id: chatId,          // Importante para el nodo de borrado\n        message_id: mensajeId,    // Importante para el nodo de borrado\n        cliente_nombre: nombreUsuario,\n        contenido_original: mensajeOriginal,\n        texto_para_ia: textoLimpio || \"sin_contenido\",\n        idioma: idiomaFinal,\n        links: linksRescatados,\n        tiene_links: tieneLinks,\n        fecha_recepcion: new Date().toISOString()\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        192
+      ],
+      "id": "3dc7891c-3b56-48db-8a66-bbcdaa856184",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.activo.toString() }}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "56d93faa-2d69-4011-aa8e-2bc02df53422"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "bdeef6c7-9bc7-4933-ba28-6f4bbed1d361",
+                    "leftValue": "={{ $json.activo.toString() }}",
+                    "rightValue": "false",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "allMatchingOutputs": false
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1120,
+        176
+      ],
+      "id": "64bc7dda-049c-45b0-a8a5-9006ed759a64",
+      "name": "Switch",
+      "executeOnce": false,
+      "retryOnFail": false,
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 4,
+        "options": {
+          "includeUnpaired": false
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        896,
+        112
+      ],
+      "id": "41bed429-b9fa-4fae-ade9-b8e043aec178",
+      "name": "Merge1",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.veredicto_final }}",
+                    "rightValue": "BLOQUEAR_Y_ELIMINAR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a4b5be22-48d8-4933-98e9-5aead87449cc"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e79ac458-216f-4d95-b63e-602204019fdc",
+                    "leftValue": "={{ $json.veredicto_final }}",
+                    "rightValue": "ELIMINAR_MENSAJE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ab8cd7dd-3fd2-4df5-a6e7-b7035f64ddd9",
+                    "leftValue": "={{ $json.veredicto_final }}",
+                    "rightValue": "PERMITIR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1568,
+        128
+      ],
+      "id": "62ed3193-8fb0-42b0-87fa-ca2181b40924",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cliente_id, nombre, activo \nFROM clientes \nWHERE contacto::text = '{{ $node[\"Code in JavaScript1\"].json.sender_id.toString().trim() }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1344,
+        192
+      ],
+      "id": "957d8734-0ed7-440e-88d8-62e4253dc795",
+      "name": "cliente lista blanca, negra o nuevo",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "SMLjmCl2rhR4By44",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://urlscan.io/api/v1/scan/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "API-Key",
+              "value": ""
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{ $json.link.trim() }}\",\n  \"visibility\": \"private\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -224,
+        232
+      ],
+      "id": "48af5f32-5810-4cac-917e-365777bf8c70",
+      "name": "urlscan.io",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        232
+      ],
+      "id": "a0ce4ee0-12d7-4b38-bebf-d4bc43082405",
+      "name": "Wait",
+      "webhookId": "49e686a1-eb97-49a6-b662-b97ffc2aade0"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.api }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        232
+      ],
+      "id": "c3e47271-e1c7-4d3f-bfe4-1521602dc2c7",
+      "name": "Resultados",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        232
+      ],
+      "id": "b952824c-5a9f-4e65-a1ce-2cf0e5793472",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.captura_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        392
+      ],
+      "id": "c9ae6461-3b16-4a3d-bcf5-6d2cc9a4ab37",
+      "name": "HTTP Request",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Obtenemos todos los ítems que llegan al nodo\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  // Extraemos el buffer real (los bytes) del objeto binario llamado 'data'\n  const binaryBuffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  \n  // Creamos una nueva propiedad en el JSON que contiene los bytes puros\n  // Esto es lo que Postgres SI entenderá como imagen (BYTEA)\n  items[i].json.archivo_puro = binaryBuffer;\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        392
+      ],
+      "id": "6994447e-02a6-423c-8237-c351912c63a4",
+      "name": "Code in JavaScript3",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO clientes (nombre, contacto, activo) \nVALUES (\n  '{{ $node[\"Code in JavaScript1\"].json.cliente_nombre }}', \n  '{{ $node[\"Code in JavaScript1\"].json.sender_id }}', \n  true\n)\nRETURNING cliente_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -896,
+        264
+      ],
+      "id": "dbe8dc1e-0dfc-48da-932f-9f54b70a25c9",
+      "name": "Inserta al nuevo usuario",
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": false,
+      "credentials": {
+        "postgres": {
+          "id": "SMLjmCl2rhR4By44",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "mensajes",
+          "mode": "list",
+          "cachedResultName": "mensajes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mensaje_id": "={{ $json.message_id }}",
+            "cliente_id": "={{ $json.cliente_id }}",
+            "texto": "={{ $json.contenido_texto }}",
+            "hash": "={{ $json.contenido_texto }}",
+            "idioma": "={{ $json.idioma }}"
+          },
+          "matchingColumns": [
+            "mensaje_id"
+          ],
+          "schema": [
+            {
+              "id": "mensaje_id",
+              "displayName": "mensaje_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "cliente_id",
+              "displayName": "cliente_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "texto",
+              "displayName": "texto",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "hash",
+              "displayName": "hash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "idioma",
+              "displayName": "idioma",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        712
+      ],
+      "id": "97d9134f-53ec-4032-aefd-4051cca9c0d0",
+      "name": "copia del mensaje",
+      "credentials": {
+        "postgres": {
+          "id": "SMLjmCl2rhR4By44",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n    const data = item.json;\n\n    // 1. Extracción de datos\n    const ia_riesgo = data.riesgo ? Number(data.riesgo) : 0;\n    const ia_clase = data.ia_clase || \"N/A\";\n    const vt_maliciosos = data.vt_maliciosos ? Number(data.vt_maliciosos) : 0;\n    const es_reincidente = data.recurrente === true;\n    const indicadores = Array.isArray(data.indicadores) ? data.indicadores : [];\n    const texto = (data.contenido_texto || \"\").toLowerCase();\n\n    // 2. Cálculo de \"Score de Amenaza\"\n    let scoreFinal = ia_riesgo;\n\n    // REGLA: Solo procesar indicadores reales\n    if (indicadores.length > 0) {\n        scoreFinal = Math.max(scoreFinal, 0.65);\n        scoreFinal += 0.10;\n    }\n\n    // PENALIZACIÓN POR PALABRAS CRÍTICAS (Solo si el texto es largo o sospechoso)\n    const keywords = ['bitcoin', 'pago', 'transferencia', 'hacker', 'policía', 'video', 'cámara'];\n    if (keywords.some(word => texto.includes(word)) && texto.length > 3) {\n        scoreFinal += 0.15;\n    }\n\n    // --- CAMBIO CLAVE AQUÍ ---\n    // Solo penalizamos la reincidencia si el riesgo detectado ya es moderado (> 0.6)\n    // o si hay indicadores presentes. Si el usuario dice \"hola\", no se penaliza.\n    if (es_reincidente && (ia_riesgo > 0.6 || indicadores.length > 0)) {\n        scoreFinal += 0.20;\n    }\n\n    // PRIORIDAD VIRUSTOTAL (Esto manda sobre todo)\n    if (vt_maliciosos >= 1) {\n        scoreFinal = Math.max(scoreFinal, 0.85);\n        if (vt_maliciosos >= 3) scoreFinal = 1.0;\n    }\n\n    // 3. Sistema de Veredictos\n    let veredicto = \"PERMITIR\";\n    let clasificacion = \"legit\";\n\n    // Si el texto es muy corto (como \"hola\") y no tiene links ni VT maliciosos, \n    // forzamos el veredicto a PERMITIR aunque el score sea alto por ruido.\n    const es_texto_trivial = texto.length < 5 && vt_maliciosos === 0 && indicadores.length === 0;\n\n    if (!es_texto_trivial) {\n        if (scoreFinal >= 0.85) {\n            veredicto = \"BLOQUEAR_Y_ELIMINAR\";\n            clasificacion = \"phishing_critico\";\n        } \n        else if (scoreFinal >= 0.70) { // Subimos el umbral de sospecha a 0.70\n            veredicto = \"ELIMINAR_MENSAJE\";\n            clasificacion = \"phishing_sospechoso\";\n        }\n    }\n\n    scoreFinal = Math.min(Math.max(scoreFinal, 0), 1.0);\n\n    return {\n        json: {\n            chat_id: data.chat_id,\n            mensaje_id: parseInt(data.mensaje_id) || 0,\n            veredicto_final: veredicto,\n            clasificacion: clasificacion,\n            riesgo_score: parseFloat(scoreFinal.toFixed(2)),\n            detalles: {\n                ia_base: ia_riesgo,\n                ia_clase: ia_clase,\n                indicadores: indicadores,\n                indicadores_conteo: indicadores.length,\n                es_reincidente: es_reincidente,\n                vt_detecciones: vt_maliciosos,\n                trivial: es_texto_trivial\n            }\n        }\n    };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        144
+      ],
+      "id": "19ea6c6f-81a0-4312-ae71-94c2460a21a3",
+      "name": "JUEZ"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "analisis",
+          "mode": "list",
+          "cachedResultName": "analisis"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "recurrente": "={{ $json.detalles.es_reincidente }}",
+            "mensaje_id": "={{ $json.mensaje_id }}",
+            "clasificacion": "={{ $json.clasificacion }}",
+            "riesgo": "={{ $json.riesgo_score }}",
+            "vt_score": "={{ $json.detalles.vt_detecciones }}",
+            "veredicto_final": "={{ $json.veredicto_final }}",
+            "detalles": "={{ $json.detalles }}"
+          },
+          "matchingColumns": [
+            "mensaje_id"
+          ],
+          "schema": [
+            {
+              "id": "mensaje_id",
+              "displayName": "mensaje_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "clasificacion",
+              "displayName": "clasificacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "riesgo",
+              "displayName": "riesgo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "recurrente",
+              "displayName": "recurrente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "vt_score",
+              "displayName": "vt_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "archivo_score",
+              "displayName": "archivo_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "veredicto_final",
+              "displayName": "veredicto_final",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "detalles",
+              "displayName": "detalles",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        144
+      ],
+      "id": "aa6ba4b7-a4a4-4146-9331-61deea79978a",
+      "name": "Insercion de los resultados",
+      "credentials": {
+        "postgres": {
+          "id": "SMLjmCl2rhR4By44",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  // Accedemos a la zona donde están los motores (DNS8, URLQuery, etc.)\n  const attributes = item.json?.data?.attributes || {};\n  const stats = attributes.last_analysis_stats || attributes.stats;\n  const results = attributes.last_analysis_results || attributes.results;\n\n  // 1. Calculamos el Score Total\n  const maliciosos = stats?.malicious || 0;\n  const total = stats ? (stats.malicious + stats.harmless + stats.suspicious + stats.undetected) : 0;\n\n  // 2. Filtramos motores específicos para el \"Resumen\"\n  // Aquí puedes agregar los que más te importen\n  const motoresInteres = ['Google Safe Browsing', 'Kaspersky', 'Sophos', 'DNS8', 'URLQuery'];\n  let resumenMotores = \"\";\n\n  if (results) {\n    motoresInteres.forEach(m => {\n      if (results[m]) {\n        // Guardamos el nombre del motor y si dijo 'clean', 'malicious', etc.\n        resumenMotores += `${m}: ${results[m].result}; `;\n      }\n    });\n  }\n\n  // 3. Resultado final para Postgres\n  return {\n    json: {\n      vt_maliciosos: maliciosos,\n      vt_score: `${maliciosos}/${total}`,\n      vt_veredicto: maliciosos > 0 ? 'MALICIOSO' : 'SEGURO',\n      vt_detalle_motores: resumenMotores || \"Motores principales sin alertas\",\n      url_final: attributes.url || item.json.meta?.url_info?.url\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "b1e9522e-f5a9-406e-96b1-0f1e437b5710",
+      "name": "limpia los resultados"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Accedemos a los datos que vienen del Merge2\nconst inputData = $input.item.json;\n\n// 2. Accedemos a los datos del nodo Resultados (urlscan.io)\nconst res = $node[\"Resultados\"].json;\n\nreturn {\n    fecha: new Date().toISOString(),\n    \n    // --- SOLUCIÓN AQUÍ ---\n    // En tu captura se ve que la llave es \"message_id\". \n    // Usamos ambas por si acaso cambia en el futuro.\n    mensaje_id: inputData.message_id || inputData.mensaje_id || \"ID no disponible\",\n    \n    // Usamos \"mensaje\" que es como viene del nodo anterior según tu captura\n    url_original: inputData.mensaje || res.page?.url || \"URL no disponible\",\n    url_final: res.task?.url || \"URL no disponible\",\n    \n    us_puntuacion: res.verdicts?.overall?.score ? Number(res.verdicts.overall.score) : 0,\n    us_malicioso: res.verdicts?.overall?.malicious || false,\n    us_veredicto: res.verdicts?.overall?.malicious ? 'MALICIOSO' : 'SEGURO',\n    \n    score_vt: 0,\n    captura_url: res.task?.screenshotURL || \"Sin captura\",\n    status_http: String(res.page?.status || \"0\"),\n    ip_servidor: res.page?.ip || \"Desconocida\",\n    pais: res.page?.country || \"Desconocido\",\n    tecnologias: res.page?.server || \"N/A\"\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        232
+      ],
+      "id": "9153b49e-65af-4538-bcb1-445d579f6900",
+      "name": "limpia los resultados1",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3bf8b5e0-bf73-4671-9fb9-8e3d0b6ea0e9",
+              "name": "cliente_id",
+              "value": "={{ $json.cliente_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a5a3e8bb-5b25-4bd7-b3e5-e18b8f203ce6",
+              "name": "nombre",
+              "value": "={{ $('Code in JavaScript1').item.json.cliente_nombre }}",
+              "type": "string"
+            },
+            {
+              "id": "9592a884-d028-4e83-8545-bb83aea72c66",
+              "name": "activo",
+              "value": "={{ $json.activo }}",
+              "type": "boolean"
+            },
+            {
+              "id": "3f6fcdac-aec9-4239-bb45-7043783e7242",
+              "name": "message_id",
+              "value": "={{ $('Code in JavaScript1').item.json.message_id }}",
+              "type": "string"
+            },
+            {
+              "id": "40a994c3-8dc5-44b9-9d4e-1a7fe16b5958",
+              "name": "date",
+              "value": "={{ $('Code in JavaScript1').item.json.fecha_recepcion }}",
+              "type": "string"
+            },
+            {
+              "id": "2d5cf7d6-5497-4f89-9bdd-468ab4448a8b",
+              "name": "contenido_texto",
+              "value": "={{ $('Code in JavaScript1').item.json.texto_para_ia }}",
+              "type": "string"
+            },
+            {
+              "id": "99d01fe7-ba26-4c1b-907d-c579a69291ef",
+              "name": "idioma",
+              "value": "={{ $('Code in JavaScript1').item.json.idioma }}",
+              "type": "string"
+            },
+            {
+              "id": "ffb56a02-5a2d-4aca-9c23-41d29053aacd",
+              "name": "link",
+              "value": "={{ $('Code in JavaScript1').item.json.links }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -672,
+        192
+      ],
+      "id": "4749541a-1614-42be-8600-32e35ec7a244",
+      "name": "Edit Fields",
+      "alwaysOutputData": true,
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "cliente_id, nombre, message_id, date, contenido_texto, idioma",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ],
+      "id": "ec90664d-a161-4f7b-91ad-cd26dea3405c",
+      "name": "Split Out",
+      "alwaysOutputData": false,
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "link",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        48
+      ],
+      "id": "dcdaa983-aaa1-459c-bc33-bdd88b77f96a",
+      "name": "Split Out1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5b76a517-077b-4fb6-b618-c94a23ed7fe4",
+              "name": "message_id",
+              "value": "={{ $json.message_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        568
+      ],
+      "id": "8bdc68d9-822f-465d-a463-ae57bf9bea93",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8007/api/borrar_mensaje",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "MiClaveSuperSecreta123"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "auth_user_id",
+              "value": "={{ $('Webhook').item.json.body.auth_user_id }}"
+            },
+            {
+              "name": "chat_id",
+              "value": "={{ $('Webhook').item.json.body.chat_id }}"
+            },
+            {
+              "name": "message_id",
+              "value": "={{ $('Webhook').item.json.body.message_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1792,
+        144
+      ],
+      "id": "f24b8a31-870e-429d-adb3-10b2538ed320",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "analisis_urlscan",
+          "mode": "list",
+          "cachedResultName": "analisis_urlscan"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "us_malicioso": "={{ $json.us_malicioso }}",
+            "mensaje_id": "={{ $json.mensaje_id }}",
+            "fecha": "={{ $json.fecha }}",
+            "url_original": "={{ $json.url_original }}",
+            "veredicto": "={{ $json.us_veredicto }}",
+            "score_vt": "={{ $json.score_vt }}",
+            "score_urlscan": "={{ $json.us_puntuacion }}",
+            "captura_url": "={{ $json.captura_url }}",
+            "url_final": "={{ $json.url_final }}",
+            "us_veredicto": "={{ $json.us_veredicto }}",
+            "captura_binaria": "={{ $binary.data }}",
+            "tecnologias": "={{ $json.tecnologias }}",
+            "pais": "={{ $json.pais }}",
+            "ip_servidor": "={{ $json.ip_servidor }}",
+            "status_http": "={{ $json.status_http }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mensaje_id",
+              "displayName": "mensaje_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "url_original",
+              "displayName": "url_original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "veredicto",
+              "displayName": "veredicto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score_vt",
+              "displayName": "score_vt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score_urlscan",
+              "displayName": "score_urlscan",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "captura_url",
+              "displayName": "captura_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "url_final",
+              "displayName": "url_final",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "us_malicioso",
+              "displayName": "us_malicioso",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "us_veredicto",
+              "displayName": "us_veredicto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status_http",
+              "displayName": "status_http",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ip_servidor",
+              "displayName": "ip_servidor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pais",
+              "displayName": "pais",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tecnologias",
+              "displayName": "tecnologias",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "captura_binaria",
+              "displayName": "captura_binaria",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        392
+      ],
+      "id": "c825edd8-fea9-4d80-af17-cc848b816fc2",
+      "name": "Insert de la imagen de urlscan",
+      "credentials": {
+        "postgres": {
+          "id": "SMLjmCl2rhR4By44",
+          "name": "Postgres account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "spearphish-detector": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "VirusTotal": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VirusTotal1": {
+      "main": [
+        [
+          {
+            "node": "limpia los resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "VirusTotal1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "cliente lista blanca, negra o nuevo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        [
+          {
+            "node": "Inserta al nuevo usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "JUEZ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cliente lista blanca, negra o nuevo": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "urlscan.io": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resultados": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "limpia los resultados1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Insert de la imagen de urlscan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inserta al nuevo usuario": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "copia del mensaje": {
+      "main": [
+        [
+          {
+            "node": "spearphish-detector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JUEZ": {
+      "main": [
+        [
+          {
+            "node": "Insercion de los resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insercion de los resultados": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "limpia los resultados": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "limpia los resultados1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Out1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "copia del mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out1": {
+      "main": [
+        [
+          {
+            "node": "VirusTotal",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "urlscan.io",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "dynamic",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "versionId": "73d6c273-45dc-48c9-89b0-eef514d9fb00",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "63a9bc8aece8eed2de4a6ace00c0dd915cada8789b6153b122be84ac16a5dc8b"
+  },
+  "id": "4M2zkrutOEZe8nMd",
+  "tags": []
+}
